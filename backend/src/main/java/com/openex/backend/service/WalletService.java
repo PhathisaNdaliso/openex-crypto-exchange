@@ -7,7 +7,10 @@ import com.openex.backend.model.Wallet;
 import com.openex.backend.repository.WalletRepository;
 import java.math.BigDecimal;
 import java.util.List;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,13 +21,20 @@ public class WalletService {
 
     private final WalletRepository walletRepository;
     private final UserService userService;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public WalletService(WalletRepository walletRepository, UserService userService) {
+    public WalletService(
+            WalletRepository walletRepository,
+            UserService userService,
+            SimpMessagingTemplate messagingTemplate
+    ) {
         this.walletRepository = walletRepository;
         this.userService = userService;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @Transactional(readOnly = true)
+    @Cacheable("walletsAll")
     public List<WalletResponse> getAllWallets() {
         return walletRepository.findAll().stream()
                 .map(this::toResponse)
@@ -32,10 +42,12 @@ public class WalletService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "walletsById", key = "#id")
     public WalletResponse getWalletById(Long id) {
         return toResponse(findWalletEntityById(id));
     }
 
+    @CacheEvict(cacheNames = {"walletsAll", "walletsById"}, allEntries = true)
     public WalletResponse createWallet(WalletRequest request) {
         validateWalletRequest(request);
         User user = userService.findUserEntityById(request.userId());
@@ -56,9 +68,12 @@ public class WalletService {
                 .lockedBalance(defaultIfNull(request.lockedBalance()))
                 .build();
 
-        return toResponse(walletRepository.save(wallet));
+        WalletResponse response = toResponse(walletRepository.save(wallet));
+        publishWalletUpdate("CREATED", response);
+        return response;
     }
 
+    @CacheEvict(cacheNames = {"walletsAll", "walletsById"}, allEntries = true)
     public WalletResponse updateWallet(Long id, WalletRequest request) {
         validateWalletRequest(request);
 
@@ -80,15 +95,17 @@ public class WalletService {
         wallet.setBalance(defaultIfNull(request.balance()));
         wallet.setLockedBalance(defaultIfNull(request.lockedBalance()));
 
-        return toResponse(walletRepository.save(wallet));
+        WalletResponse response = toResponse(walletRepository.save(wallet));
+        publishWalletUpdate("UPDATED", response);
+        return response;
     }
 
+    @CacheEvict(cacheNames = {"walletsAll", "walletsById"}, allEntries = true)
     public void deleteWallet(Long id) {
-        if (!walletRepository.existsById(id)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Wallet not found");
-        }
-
-        walletRepository.deleteById(id);
+        Wallet wallet = findWalletEntityById(id);
+        WalletResponse response = toResponse(wallet);
+        walletRepository.delete(wallet);
+        publishWalletUpdate("DELETED", response);
     }
 
     @Transactional(readOnly = true)
@@ -142,5 +159,14 @@ public class WalletService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private void publishWalletUpdate(String eventType, WalletResponse response) {
+        messagingTemplate.convertAndSend("/topic/wallets", response);
+        messagingTemplate.convertAndSend("/topic/wallets/" + response.userId(), response);
+        messagingTemplate.convertAndSend(
+                "/queue/wallet-events",
+                eventType + ":" + response.id() + ":" + response.currency()
+        );
     }
 }

@@ -5,6 +5,8 @@ import com.openex.backend.dto.UserResponse;
 import com.openex.backend.model.User;
 import com.openex.backend.repository.UserRepository;
 import java.util.List;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,7 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable("usersAll")
     public List<UserResponse> getAllUsers() {
         return userRepository.findAll().stream()
                 .map(this::toResponse)
@@ -28,10 +31,12 @@ public class UserService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "usersById", key = "#id")
     public UserResponse getUserById(Long id) {
         return toResponse(findUserEntityById(id));
     }
 
+    @CacheEvict(cacheNames = {"usersAll", "usersById"}, allEntries = true)
     public UserResponse createUser(UserRequest request) {
         validateUserRequest(request);
         ensureUsernameAvailable(request.username(), null);
@@ -47,6 +52,7 @@ public class UserService {
         return toResponse(userRepository.save(user));
     }
 
+    @CacheEvict(cacheNames = {"usersAll", "usersById"}, allEntries = true)
     public UserResponse updateUser(Long id, UserRequest request) {
         validateUserRequest(request);
 
@@ -62,6 +68,7 @@ public class UserService {
         return toResponse(userRepository.save(user));
     }
 
+    @CacheEvict(cacheNames = {"usersAll", "usersById"}, allEntries = true)
     public void deleteUser(Long id) {
         if (!userRepository.existsById(id)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");

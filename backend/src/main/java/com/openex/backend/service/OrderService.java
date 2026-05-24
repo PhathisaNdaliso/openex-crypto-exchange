@@ -2,12 +2,17 @@ package com.openex.backend.service;
 
 import com.openex.backend.dto.OrderRequest;
 import com.openex.backend.dto.OrderResponse;
+import com.openex.backend.dto.OrderStreamMessage;
 import com.openex.backend.model.Order;
 import com.openex.backend.model.User;
 import com.openex.backend.repository.OrderRepository;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -18,13 +23,20 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final UserService userService;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public OrderService(OrderRepository orderRepository, UserService userService) {
+    public OrderService(
+            OrderRepository orderRepository,
+            UserService userService,
+            SimpMessagingTemplate messagingTemplate
+    ) {
         this.orderRepository = orderRepository;
         this.userService = userService;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @Transactional(readOnly = true)
+    @Cacheable("ordersAll")
     public List<OrderResponse> getAllOrders() {
         return orderRepository.findAll().stream()
                 .map(this::toResponse)
@@ -32,10 +44,12 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "ordersById", key = "#id")
     public OrderResponse getOrderById(Long id) {
         return toResponse(findOrderEntityById(id));
     }
 
+    @CacheEvict(cacheNames = {"ordersAll", "ordersById"}, allEntries = true)
     public OrderResponse createOrder(OrderRequest request) {
         validateOrderRequest(request);
         User user = userService.findUserEntityById(request.userId());
@@ -52,9 +66,12 @@ public class OrderService {
                 .price(request.price())
                 .build();
 
-        return toResponse(orderRepository.save(order));
+        OrderResponse response = toResponse(orderRepository.save(order));
+        publishOrderEvent("CREATED", response);
+        return response;
     }
 
+    @CacheEvict(cacheNames = {"ordersAll", "ordersById"}, allEntries = true)
     public OrderResponse updateOrder(Long id, OrderRequest request) {
         validateOrderRequest(request);
 
@@ -71,15 +88,17 @@ public class OrderService {
         order.setFilledQuantity(defaultIfNull(request.filledQuantity()));
         order.setPrice(request.price());
 
-        return toResponse(orderRepository.save(order));
+        OrderResponse response = toResponse(orderRepository.save(order));
+        publishOrderEvent("UPDATED", response);
+        return response;
     }
 
+    @CacheEvict(cacheNames = {"ordersAll", "ordersById"}, allEntries = true)
     public void deleteOrder(Long id) {
-        if (!orderRepository.existsById(id)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Order not found");
-        }
-
-        orderRepository.deleteById(id);
+        Order order = findOrderEntityById(id);
+        OrderResponse response = toResponse(order);
+        orderRepository.delete(order);
+        publishOrderEvent("DELETED", response);
     }
 
     @Transactional(readOnly = true)
@@ -157,5 +176,18 @@ public class OrderService {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private void publishOrderEvent(String eventType, OrderResponse response) {
+        OrderStreamMessage streamMessage = new OrderStreamMessage(
+                response.id(),
+                response.userId(),
+                response.status(),
+                eventType,
+                Instant.now()
+        );
+        messagingTemplate.convertAndSend("/topic/orders", streamMessage);
+        messagingTemplate.convertAndSend("/topic/orders/" + response.userId(), streamMessage);
+        messagingTemplate.convertAndSend("/queue/order-events", streamMessage);
     }
 }
