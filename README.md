@@ -68,24 +68,23 @@ Real-time communication support was configured using Spring Boot WebSocket with 
 
 This configuration provides the foundation for future real-time features such as market data streaming, order updates, and live trading notifications.
 
-### Screenshots
+## Screenshots
 
-#### POST `/api/orders`
+### POST `/api/orders`
 
-![POST /api/orders](</Users/boniswandaliso/Desktop/Phathisa openex crypto/post orders.png>)
+![POST /api/orders](backend/post%20orders.png)
 
-#### GET `/api/wallets`
+### GET `/api/wallets`
 
-![GET /api/wallets](</Users/boniswandaliso/Desktop/Phathisa openex crypto/get wallets.png>)
+![GET /api/wallets](backend/get%20wallets.png)
 
-#### GET `/api/users`
+### GET `/api/users`
 
-![GET /api/users](</Users/boniswandaliso/Desktop/Phathisa openex crypto/get users.png>)
+![GET /api/users](backend/get%20users.png)
 
-#### GET `/api/orders`
+### GET `/api/orders`
 
-![GET /api/orders](</Users/boniswandaliso/Desktop/Phathisa openex crypto/get orders.png>)
-
+![GET /api/orders](backend/get%20orders.png)
 ### Conclusion
 
 Week 1 successfully established the backend foundation for the OpenEx crypto exchange simulation platform. With the core layered architecture, REST APIs, PostgreSQL integration, DTO-driven communication, validation logic, and WebSocket configuration now in place, the project is well prepared for future work on trading logic, authentication, and real-time exchange features.
