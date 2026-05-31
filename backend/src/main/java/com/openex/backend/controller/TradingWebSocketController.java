@@ -2,6 +2,7 @@ package com.openex.backend.controller;
 
 import com.openex.backend.dto.MarketUpdateMessage;
 import com.openex.backend.dto.OrderStreamMessage;
+import com.openex.backend.dto.TradeUpdateMessage;
 import com.openex.backend.dto.WebSocketAckMessage;
 import java.time.Instant;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -31,6 +32,19 @@ public class TradingWebSocketController {
                 message.userId(),
                 message.status(),
                 message.eventType(),
+                message.timestamp() != null ? message.timestamp() : Instant.now()
+        );
+    }
+
+    @MessageMapping("/trades.broadcast")
+    @SendTo("/topic/trades")
+    public TradeUpdateMessage broadcastTradeUpdate(TradeUpdateMessage message) {
+        return new TradeUpdateMessage(
+                message.symbol(),
+                message.price(),
+                message.volume(),
+                message.side(),
+                message.changePercent(),
                 message.timestamp() != null ? message.timestamp() : Instant.now()
         );
     }
